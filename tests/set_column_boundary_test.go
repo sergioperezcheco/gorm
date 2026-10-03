@@ -132,16 +132,39 @@ func updateSetColumnRenamed(t *testing.T, m *SetColumnColumnModel) {
 
 func updateSetColumnUnrelated(t *testing.T, m *SetColumnColumnModel) {
 	t.Helper()
-	// Same Go name as either the model field or its DB column is not a column match.
+	// A Go field name is not a match for a differently mapped database column.
 	payload := struct {
-		Target string `gorm:"column:other"`
-		Value  string `gorm:"column:address"`
-	}{Target: "keep", Value: "new"}
+		Target  string `gorm:"column:other"`
+		Address string
+	}{Target: "keep", Address: "new"}
 	if err := DB.Model(m).Updates(&payload).Error; err != nil {
 		t.Fatal(err)
 	}
-	if payload.Target != "keep" || payload.Value != "new" {
+	if payload.Target != "keep" || payload.Address != "new" {
 		t.Fatalf("wrong unrelated payload: %+v", payload)
+	}
+
+	// The assignment builder independently falls back from the model's DB name
+	// "Value" to this DTO's Go name, producing duplicate address assignments.
+	// PostgreSQL and SQL Server reject that existing SQL behavior. Exercise the
+	// hook's DB-name collision without executing the unrelated invalid SQL, and
+	// compare its assignments against the existing SkipHooks control.
+	collision := struct {
+		Target string `gorm:"column:other"`
+		Value  string `gorm:"column:address"`
+	}{Target: "keep", Value: "new"}
+	controlModel := *m
+	controlPayload := collision
+	control := DB.Session(&gorm.Session{DryRun: true, SkipHooks: true}).Model(&controlModel).Updates(&controlPayload)
+	result := DB.Session(&gorm.Session{DryRun: true}).Model(m).Updates(&collision)
+	if result.Error != nil || control.Error != nil {
+		t.Fatalf("dry-run errors: hooked=%v control=%v", result.Error, control.Error)
+	}
+	if collision != controlPayload || collision.Target != "keep" || collision.Value != "new" {
+		t.Fatalf("wrong DB-name collision payload: hooked=%+v control=%+v", collision, controlPayload)
+	}
+	if result.Statement.SQL.String() != control.Statement.SQL.String() || !reflect.DeepEqual(result.Statement.Vars, control.Statement.Vars) {
+		t.Fatalf("hook changed assignments: hooked=%s %v control=%s %v", result.Statement.SQL.String(), result.Statement.Vars, control.Statement.SQL.String(), control.Statement.Vars)
 	}
 }
 
