@@ -608,7 +608,13 @@ func (stmt *Statement) SetColumn(name string, value interface{}, fromCallbacks .
 
 				switch destValue.Kind() {
 				case reflect.Struct:
-					stmt.AddError(field.Set(stmt.Context, destValue, value))
+					if destSchema, err := schema.Parse(stmt.Dest, stmt.cacheStore, stmt.NamingStrategy); err != nil {
+						_ = stmt.AddError(err)
+					} else if destField := destSchema.LookUpField(field.DBName); destField != nil {
+						_ = stmt.AddError(destField.Set(stmt.Context, destValue, value))
+					} else {
+						_ = stmt.AddError(ErrInvalidField)
+					}
 				default:
 					stmt.AddError(ErrInvalidData)
 				}
