@@ -610,10 +610,9 @@ func (stmt *Statement) SetColumn(name string, value interface{}, fromCallbacks .
 				case reflect.Struct:
 					if destSchema, err := schema.Parse(stmt.Dest, stmt.cacheStore, stmt.NamingStrategy); err != nil {
 						_ = stmt.AddError(err)
-					} else if destField := destSchema.LookUpField(field.DBName); destField != nil {
+					} else if destField := destSchema.FieldsByDBName[field.DBName]; destField != nil {
+						// Match the update assignments by column, not by model field index.
 						_ = stmt.AddError(destField.Set(stmt.Context, destValue, value))
-					} else {
-						_ = stmt.AddError(ErrInvalidField)
 					}
 				default:
 					stmt.AddError(ErrInvalidData)
